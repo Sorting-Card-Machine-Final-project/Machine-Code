@@ -18,4 +18,5 @@ class Pack():
 print(suits["Hearts"])
 print(suits["Diamonds"])
 print(suits["Clubs"])
-# Arrange the for loops to run on a pair of the dic and add the numbers
+# Array the for loops to run on a pair of the dic and add the numbers
+
