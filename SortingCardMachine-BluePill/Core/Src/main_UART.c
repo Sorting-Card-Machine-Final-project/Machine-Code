@@ -63,7 +63,7 @@ static void MX_USART1_UART_Init(void);
 
 
 /* USER CODE BEGIN PFP */
-
+void Uart_Tx_Rx(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -131,7 +131,6 @@ int main(void)
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
-
 
   /* We should never get here as control is now taken by the scheduler */
 
