@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">&#x0A;<refactoring comment="Rename resource &apos;SortingCardMachine-BluePill/Core/Src/main_PWM&apos; to &apos;main_PWM.c&apos;" description="Rename resource &apos;main_PWM&apos;" flags="7" id="org.eclipse.ltk.core.refactoring.rename.resource" input="Core/Src/main_PWM" name="main_PWM.c" stamp="1723662323380" updateReferences="true"/>&#x0A;<refactoring comment="Rename resource &apos;SortingCardMachine-BluePill/Core/Src/main_UART&apos; to &apos;main_UART.c&apos;" description="Rename resource &apos;main_UART&apos;" flags="7" id="org.eclipse.ltk.core.refactoring.rename.resource" input="Core/Src/main_UART" name="main_UART.c" stamp="1723664345135" updateReferences="true"/>
+</session>
