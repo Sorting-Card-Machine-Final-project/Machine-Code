@@ -173,3 +173,14 @@ java.lang.Exception: The project description file (.project) for 'SortingCardMac
 
 !ENTRY org.eclipse.cdt.core 1 0 2024-08-12 14:42:39.568
 !MESSAGE Indexed 'SortingCardMachine-BluePill' (17 sources, 78 headers) in 0.787 sec: 3,643 declarations; 13,255 references; 0 unresolved inclusions; 1 syntax errors; 2 unresolved names (0.012%)
+
+!ENTRY org.eclipse.ui.ide 4 4 2024-08-16 14:40:15.785
+!MESSAGE Problems saving workspace
+
+!ENTRY org.eclipse.ui.ide 2 1 2024-08-16 14:40:15.786
+!MESSAGE Problems occurred while trying to save the state of the workbench.
+!SUBENTRY 1 org.eclipse.core.resources 2 234 2024-08-16 14:40:15.786
+!MESSAGE The project description file (.project) for 'SortingCardMachine' was missing.  This file contains important information about the project.  A new project description file has been created, but some information about the project may have been lost.
+
+!ENTRY org.eclipse.core.resources 2 10035 2024-08-16 14:40:15.903
+!MESSAGE The workspace will exit with unsaved changes in this session.
