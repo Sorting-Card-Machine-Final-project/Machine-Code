@@ -748,3 +748,7 @@
 2024-08-23 11:48:35,471 [INFO] WebApp:189 - Connection lost
 2024-08-23 11:48:40,173 [INFO] WebApp:186 - Connection restablished
 2024-08-23 11:48:55,399 [INFO] NvicIntPanel:101 - NVIC parent = com.st.microxplorer.plugins.ip.nvic.MultiNvicIntPanel[,0,0,450x491,layout=javax.swing.BoxLayout,alignmentX=0.0,alignmentY=0.0,border=,flags=9,maximumSize=,minimumSize=,preferredSize=]
+2024-08-23 15:47:22,501 [INFO] WebApp:189 - Connection lost
+2024-08-23 15:47:29,055 [INFO] WebApp:186 - Connection restablished
+2024-08-23 16:28:38,325 [INFO] WebApp:189 - Connection lost
+2024-08-23 16:28:44,986 [INFO] WebApp:186 - Connection restablished
