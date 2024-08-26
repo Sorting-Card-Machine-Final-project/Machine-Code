@@ -331,6 +331,7 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void motorPWM(uint8_t dutyCycleP){
+  
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
