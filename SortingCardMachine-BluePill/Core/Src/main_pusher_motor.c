@@ -63,7 +63,7 @@ static void MX_USART1_UART_Init(void);
 
 
 /* USER CODE BEGIN PFP */
-
+void motorPWM(uint8_t dutyCycle);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -330,6 +330,25 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+// **************************** PWM **************************** //
+/*
+This function shows how to start and use PWM
+Use this function for test with DC motors
+*/
+void motorPWM(uint8_t dutyCycleP){
+  
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // Starting the timer - Channel1
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // Starting the timer - Channel1
+
+    TIM2->CCR1 = dutyCycleP /100 *1024; // setting the dutyCycle of channel1 by precents
+    TIM2->CCR1 = (dutyCycleP / 2) /100 *1024; // setting the dutyCycle of channel2 by precents - Half of Channel1
+
+    HAL_Delay(1000);
+
+    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1); // Stop timer
+    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2); // Stop timer
+}
 
 /* USER CODE END 4 */
 

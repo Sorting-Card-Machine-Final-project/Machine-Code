@@ -24,6 +24,7 @@
 #include "queue.h"
 #include "semphr.h"
 #include "event_groups.h"
+#include "Stepper.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -52,7 +53,7 @@ UART_HandleTypeDef huart1;
 
 
 /* USER CODE BEGIN PV */
-
+int16_t currentStepperPosition = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,7 +64,8 @@ static void MX_USART1_UART_Init(void);
 
 
 /* USER CODE BEGIN PFP */
-
+void StepperMove (uint32_t steps, uint8_t direction);
+void setZeroPoint();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -315,7 +317,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : switch1_Pin switch2_Pin */
   GPIO_InitStruct.Pin = switch1_Pin|switch2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pins : STEPPER1_DIR_Pin STEPPER1_STEP_Pin STEPPER2_DIR_Pin STEPPER2_STEP_Pin */
@@ -330,7 +332,40 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void StepperMove (uint32_t steps, uint8_t direction){
 
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, direction ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+  for (uint32_t i = 0; i < steps; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    osDelay(STEP_DELAY_MS); // Delay between steps
+
+    currentStepperPosition += direction ? 1 : (-1) ;
+  }
+  
+
+}
+
+void setZeroPoint(){
+
+  int maxSteps = 300;
+  int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
+  
+  for (uint16_t i = 0; i < maxSteps && switchFlag; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    osDelay(STEP_DELAY_MS); // Delay between steps
+  }
+  
+  currentStepperPosition = 0;
+
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
