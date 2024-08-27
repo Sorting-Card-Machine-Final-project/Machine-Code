@@ -4,3 +4,4 @@
 #define MOTOR_TASK_STACK_SIZE 128
 #define FORWARS 1
 #define BACKWARDS 0
+#define MAX_STEPS 1000 // Need to define

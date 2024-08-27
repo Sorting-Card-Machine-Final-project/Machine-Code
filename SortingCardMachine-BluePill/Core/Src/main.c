@@ -18,7 +18,12 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "cmsis_os.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
+#include "queue.h"
+#include "semphr.h"
+#include "event_groups.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -32,6 +37,22 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RX_BUFFER_SIZE 2
+
+/***** STEPPER defines #######################################################*/
+#define STEPS_PER_REVOLUTION 200 // Need to define
+#define STEP_DELAY_MS 10 // Need to define
+#define MOTOR_TASK_PRIORITY osPriorityNormal
+#define MOTOR_TASK_STACK_SIZE 128
+#define FORWARS 1
+#define BACKWARDS 0
+#define MAX_STEPS 1000 // Need to define
+/***** Tray Positions defines ################################################*/
+#define FIRST_LEVEL_POS 1 // Lowest level of Sorting Tray  //UPDATE!!
+#define SECOND_LEVEL_POS 2 // Lowest level of Sorting Tray  //UPDATE!!
+#define THIRD_LEVEL_POS 3 // Lowest level of Sorting Tray  //UPDATE!!
+#define FOURTH_LEVEL_POS 4 // Lowest level of Sorting Tray  //UPDATE!!
+
 
 /* USER CODE END PD */
 
@@ -45,9 +66,11 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
-osThreadId defaultTaskHandle;
-/* USER CODE BEGIN PV */
 
+/* USER CODE BEGIN PV */
+QueueHandle_t xQueueUART;
+uint8_t rxBuffer[RX_BUFFER_SIZE];
+int16_t trayPosition = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -55,9 +78,16 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
-void StartDefaultTask(void const * argument);
+void StartDefaultTask(void const * argument)
+
 
 /* USER CODE BEGIN PFP */
+// !Need to write messegeInterpret function
+int messegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct 
+int callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
+void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
+int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
+void pullingHandlePush(); // Pushing the cards back to the Feeding Tray
 
 /* USER CODE END PFP */
 
@@ -74,6 +104,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  xQueueUART = xQueueCreate( 2, sizeof(uint8_t) );
 
   /* USER CODE END 1 */
 
@@ -119,15 +150,14 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
-  defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
+
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
-  osKernelStart();
+
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -273,7 +303,7 @@ static void MX_USART1_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
-
+  HAL_UART_Receive_IT(&huart1, rxBuffer, RX_BUFFER_SIZE);
   /* USER CODE END USART1_Init 2 */
 
 }
@@ -326,6 +356,153 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/***** UART Interrupt Function ################################################*/
+/*
+  This function starting when messege is starting to arrive 
+  Then the function pushing the messege to xQueueUART
+*/
+/**
+  * @brief  This function starting when messege is starting to arrive. Then the function pushing the messege to xQueueUART
+  * @param  huart: UART handle
+  * @retval None
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+  if (huart->Instance == USART1){
+   if(xQueueSendFromISR(xQueueUART, rxBuffer, NULL) == errQUEUE_FULL){
+    //Queue is full - need to send a messege about it.
+   }
+    //HAL_UART_Receive(huart, &rxBuffer, RX_BUFFER_SIZE, HAL_MAX_DELAY);  // The function HAL_UART_Receive_IT already fill rxBuffer
+    /*
+    Here we need to deside what we are looking for at the messeges
+    For example we have first 7 bits that reffer to the suit and number (4 bits of number - 13 options, 2 bits of suit - 4 options)
+    We need to add the cell to go (2 bits),
+    and acknowledge 
+
+    The place for the interpertation can be when the program pull it from the Queue
+    */
+
+  }
+
+  HAL_UART_Receive_IT(huart, rxBuffer, RX_BUFFER_SIZE);
+}
+
+
+/***** Callibration Function #################################################*/
+/** 
+  *@brief function moves the Sorting tray until the switch is close
+  *@note the function changes the trayPosition global variable
+  *@retval int status: 1 OK, 0 Error
+*/
+int callibration(){
+
+  int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
+  
+  for (uint16_t i = 0; i < MAXSTEPS && switchFlag; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    osDelay(STEP_DELAY_MS); // Delay between steps
+    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  }
+  
+  trayPosition = 0;
+}
+/***** Retriving Function #################################################*/
+/** 
+  *@brief The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
+  *@note The function calls callibration function
+  *@retval None
+*/
+void retrivigCards(){
+  callibration();
+
+  for (uint8_t i = 1; i <= 4; i++)
+  {
+    StepperMove(calculateStepsToLevel(i));
+    pullingHandlePush();
+  }
+
+}
+/***** calculation of steps to level Function ##############################*/
+/** 
+  *@brief calculate the steps to the next level
+  *@param level_to_go: The level to go to
+  *@note the current level is the global trayPosition
+  *@retval steps to go. positive is down, negative is up // Can be changed.
+*/
+int calculateStepsToLevel(int level_to_go){
+  switch (level_to_go)
+  {
+  case 1:
+    return FIRST_LEVEL_POS - trayPosition;
+    break;
+  case 2:
+    return SECOND_LEVEL_POS - trayPosition;
+    break;
+  case 3:
+    return THIRD_LEVEL_POS - trayPosition;
+    break;
+  case 4:
+    return FOURTH_LEVEL_POS - trayPosition;
+    break;
+  
+  default:
+    return 0;
+    break;
+  }
+}
+
+/***** Stepper Move Function ##############################################*/
+/** 
+  *@brief moving the Sorting Tray to position
+  *@param stepsToDir: the number of steps to the next position.
+  *@retval  None
+*/
+void StepperMove (int stepsToDir){
+  uint32_t steps;
+  uint8_t direction;
+  if(stepsToDir > 0){
+    direction = GPIO_PIN_SET;
+    steps = stepsToDir;
+  } else {
+    direction = GPIO_PIN_RESET;
+    steps = stepsToDir * -1;
+  }
+
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, direction); // (direction ? GPIO_PIN_SET : GPIO_PIN_RESET)
+
+  for (uint32_t i = 0; i < steps; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    osDelay(STEP_DELAY_MS); // Delay between steps
+
+    trayPosition += direction ? 1 : (-1) ;
+  }
+}
+/***** Pulling Handle Push Function ########################################*/
+/** 
+  *@brief Pushing the cards back to the Feeding Tray
+  *@retval  None
+*/
+void pullingHandlePush(){
+  int steps = 100 //! edit to the right steps number
+  for (uint8_t dir = 1; dir >= 0 ; dir--)
+  {
+    HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, dir); 
+    for (uint32_t i = 0; i < steps; i++)
+    {
+      HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+      osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+      HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+      osDelay(STEP_DELAY_MS); // Delay between steps
+    }
+  }
+
+}
 
 /* USER CODE END 4 */
 
@@ -339,6 +516,7 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+  
   /* Infinite loop */
   for(;;)
   {
