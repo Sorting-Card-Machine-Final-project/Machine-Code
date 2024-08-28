@@ -142,6 +142,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
+  // Start all of the timers - TIM2 with two channels
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -517,6 +518,27 @@ void pullingHandlePush(){
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+  calibration();
+  // Check the Queue. If empty -> Delay(1000) until it's not empty
+  
+  //Starting the PWM of the roller motor
+  
+  //pull from xQueue -> if empty Delay(1000);
+  //interpent the messege
+  
+  //move Sorting Tray to position
+  //starting one loop of the PWM of the pushing DC motor
+  
+  //xDelay(1000); // To make sure the card at the place
+  
+  //check for new messege from pi. Or another card(move back toSorting tray move)
+  // or end of pile( continue
+  
+  //pulling back cards to the Feeding tray
+  
+  //check messege from pi -> done or another round
+  
+  //
   
   /* Infinite loop */
   for(;;)
