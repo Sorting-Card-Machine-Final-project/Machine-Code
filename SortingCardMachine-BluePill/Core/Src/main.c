@@ -129,7 +129,13 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-
+	TIM2->CCR1 = 512;
+  TIM2->CCR2 = 256;
+  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);
+	
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -143,6 +149,9 @@ int main(void)
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
   // Start all of the timers - TIM2 with two channels
+  //Need to add al PWM functions
+  
+  
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -158,7 +167,7 @@ int main(void)
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
-
+	//Start xsechduler of FreeRTOS
 
   /* We should never get here as control is now taken by the scheduler */
 
@@ -518,10 +527,11 @@ void pullingHandlePush(){
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+  HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
   calibration();
   // Check the Queue. If empty -> Delay(1000) until it's not empty
   
-  //Starting the PWM of the roller motor
+  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
   
   //pull from xQueue -> if empty Delay(1000);
   //interpent the messege
@@ -529,16 +539,19 @@ void StartDefaultTask(void const * argument)
   //move Sorting Tray to position
   //starting one loop of the PWM of the pushing DC motor
   
-  //xDelay(1000); // To make sure the card at the place
+  xDELAY(1000);//xDelay(1000); // To make sure the card at the place
   
   //check for new messege from pi. Or another card(move back toSorting tray move)
-  // or end of pile( continue
+  // or end of pile(continue)
   
-  //pulling back cards to the Feeding tray
+  pullingHandlePush();//pulling back cards to the Feeding tray
   
   //check messege from pi -> done or another round
   
-  //
+  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
+  
+  HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
+  
   
   /* Infinite loop */
   for(;;)
