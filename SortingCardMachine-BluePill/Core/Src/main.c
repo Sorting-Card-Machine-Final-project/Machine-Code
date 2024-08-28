@@ -508,7 +508,8 @@ void pullingHandlePush(){
 
 /* USER CODE BEGIN Header_StartDefaultTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
+  * @brief  This is the main(). all the code is here.
+  * @note	The main() function is only for running the RTOS and the GPIO,TIM
   * @param  argument: Not used
   * @retval None
   */
