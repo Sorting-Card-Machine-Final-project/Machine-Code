@@ -70,6 +70,7 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 QueueHandle_t xQueueUART;
 uint8_t rxBuffer[RX_BUFFER_SIZE];
+unit8_t pvBuffer[RX_BUFFER_SIZR];
 int16_t trayPosition = 0;
 /* USER CODE END PV */
 
@@ -104,7 +105,11 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  xQueueUART = xQueueCreate( 2, sizeof(uint8_t) );
+  xQueueUART = xQueueCreate( 2, sizeof(uint8_t) ); // Can be 1 for 8bits messege
+  if(xQueueUART == NULL){
+    //xQueueUART was not created
+    //Can handle the error or send a messege to rpi(RaspberryPi)
+  }
 
   /* USER CODE END 1 */
 
@@ -527,14 +532,27 @@ void pullingHandlePush(){
 void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN 5 */
+  
+  /*
+  Few Things about this function.
+  Most of it need to be inside the infinte loop
+  At the end of the loop (each time) the function will be suspended and a flag(add one) will indicate it
+  The UART interrupt will wake the function again, so everything needs to be inside.
+  
+  */
+  
   HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
   calibration();
-  // Check the Queue. If empty -> Delay(1000) until it's not empty
+  while (xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse){ // Endless loop -> add count to 10 and send notification
+    vDelay(1000); 
+  }// Check the Queue. If empty -> Delay(1000) until it's not empty
   
   HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
   
-  //pull from xQueue -> if empty Delay(1000);
-  //interpent the messege
+  //???pull from xQueue -> if empty Delay(1000);
+  /*interpent the messege -> Build the function
+  The function needs to interpent the messege and to put the values on a new Struct(global)
+  */
   
   //move Sorting Tray to position
   //starting one loop of the PWM of the pushing DC motor
