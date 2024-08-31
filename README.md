@@ -1,2 +1,2 @@
-# Robot-Code
-stm32 code for the robot control
+# Machine-Code
+stm32 code for the machine control
