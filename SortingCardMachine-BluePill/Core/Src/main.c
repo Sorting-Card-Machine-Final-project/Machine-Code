@@ -15,6 +15,8 @@
   *
   ******************************************************************************
   */
+
+ 
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -106,6 +108,9 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
   xQueueUART = xQueueCreate( 2, sizeof(uint8_t) ); // Can be 1 for 8bits messege
+/*
+	The Queue needs to be on uint16_t for 16 bits messege
+	*/
   if(xQueueUART == NULL){
     //xQueueUART was not created
     //Can handle the error or send a messege to rpi(RaspberryPi)
@@ -537,46 +542,53 @@ void StartDefaultTask(void const * argument)
   Few Things about this function.
   Most of it need to be inside the infinte loop
   At the end of the loop (each time) the function will be suspended and a flag(add one) will indicate it
+  }
   The UART interrupt will wake the function again, so everything needs to be inside.
   
   */
   
   HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
   calibration();
-  while (xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse){ // Endless loop -> add count to 10 and send notification
-    vDelay(1000); 
-  }// Check the Queue. If empty -> Delay(1000) until it's not empty
-  
-  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
-  
-  //???pull from xQueue -> if empty Delay(1000);
-  /*interpent the messege -> Build the function
-  The function needs to interpent the messege and to put the values on a new Struct(global)
-  */
-  
-  //move Sorting Tray to position
-  //starting one loop of the PWM of the pushing DC motor
-  
-  xDELAY(1000);//xDelay(1000); // To make sure the card at the place
-  
-  //check for new messege from pi. Or another card(move back toSorting tray move)
-  // or end of pile(continue)
-  
-  pullingHandlePush();//pulling back cards to the Feeding tray
-  
-  //check messege from pi -> done or another round
-  
-  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
-  
-  HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
-  
+
   
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
-  }
-  /* USER CODE END 5 */
+	/*while (xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse){ // Endless loop -> add count to 10 and send notification
+    vDelay(1000); 
+  	}// Check the Queue. If empty -> Delay(1000) until it's not empty
+	*/
+	
+	mainLoop1:
+	
+	for(uint_8 i = 0; i < 15 && xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse; i++){
+		vDelay(1000);
+	}
+  
+  	HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
+  
+  	//???pull from xQueue -> if empty Delay(1000);
+  	/*interpent the messege -> Build the function
+  	The function needs to interpent the messege and to put the values on a new Struct(global)
+  	*/
+  
+  	//move Sorting Tray to position
+  	//starting one loop of the PWM of the pushing DC motor
+  
+  	xDELAY(1000);//xDelay(1000); // To make sure the card at the place
+  
+  	//check for new messege from pi. Or another card(move back toSorting tray move)
+  	// or end of pile(continue)
+  
+  	pullingHandlePush();//pulling back cards to the Feeding tray
+  
+  	//check messege from pi -> done or another round
+  
+  	HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
+  
+  	HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
+  	/* USER CODE END 5 */
+	}
 }
 
 /**
