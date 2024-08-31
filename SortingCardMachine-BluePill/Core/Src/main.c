@@ -91,6 +91,7 @@ int callibration(); // The Callibration of the Sorting Tray, Change the position
 void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
 int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
 void pullingHandlePush(); // Pushing the cards back to the Feeding Tray
+void cardPushSpin(); // Pushing one card from the main deck
 
 /* USER CODE END PFP */
 
@@ -421,9 +422,9 @@ int callibration(){
   for (uint16_t i = 0; i < MAXSTEPS && switchFlag; i++)
   {
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-    osDelay(STEP_DELAY_MS); // Delay between steps
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
     switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
   }
   
@@ -496,9 +497,9 @@ void StepperMove (int stepsToDir){
   for (uint32_t i = 0; i < steps; i++)
   {
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-    osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-    osDelay(STEP_DELAY_MS); // Delay between steps
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
 
     trayPosition += direction ? 1 : (-1) ;
   }
@@ -516,12 +517,31 @@ void pullingHandlePush(){
     for (uint32_t i = 0; i < steps; i++)
     {
       HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-      osDelay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
+      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
       HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-      osDelay(STEP_DELAY_MS); // Delay between steps
+      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
     }
   }
 
+}
+
+/** 
+  *@brief Pushing one card from the main deck
+  *@retval  None
+*/
+void cardPushSpin(){
+  int switchFlag = 0; // switch is open
+	TIM2->CCR1 = 100;
+
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+  for (uint8_t i = 0; i <= 255 && !switchval; i++)
+  {
+    vTaskDelay(pdMS_TO_TICKS(10));
+    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  }
+
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
 }
 
 /* USER CODE END 4 */
@@ -550,44 +570,54 @@ void StartDefaultTask(void const * argument)
   HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
   calibration();
 
+  for(uint_8 i = 0; i < 15 && xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(10)) == pdFalse; i++){
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  } // Order to start the process
   
   /* Infinite loop */
   for(;;)
   {
-	/*while (xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse){ // Endless loop -> add count to 10 and send notification
-    vDelay(1000); 
-  	}// Check the Queue. If empty -> Delay(1000) until it's not empty
-	*/
-	
-	mainLoop1:
-	
-	for(uint_8 i = 0; i < 15 && xQueueReceiveFromISR(xQueueUART, pvBuffer, NULL) == pdFalse; i++){
-		vDelay(1000);
-	}
+    mainLoop1:
+    
+    HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
   
-  	HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
+    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)); //???pull from xQueue -> if empty Delay(1000);
+    messegeInterpret(pvBuffer); // TODO: Not complited. Need to write the function 
+    /*interpent the messege -> Build the function
+    The function needs to interpent the messege and to put the values on a new Struct(global)
+    */
+    
+    //move Sorting Tray to position
+    cardPushSpin();//starting one loop of the PWM of the pushing DC motor
   
-  	//???pull from xQueue -> if empty Delay(1000);
-  	/*interpent the messege -> Build the function
-  	The function needs to interpent the messege and to put the values on a new Struct(global)
-  	*/
+    vTaskDelay(pdMS_TO_TICKS(1000));// To make sure the card at the place
   
-  	//move Sorting Tray to position
-  	//starting one loop of the PWM of the pushing DC motor
+    //check for new messege from pi. Or another card(move back toSorting tray move)
+    // or end of pile(continue)
+    //start
+    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
+    /*
+    TODO: If statment about what to do:
+    another card will be "goto mainloop;"
+    end of pile will just continue
+    */
+    //end
   
-  	xDELAY(1000);//xDelay(1000); // To make sure the card at the place
+    pullingHandlePush();//pulling back cards to the Feeding tray
   
-  	//check for new messege from pi. Or another card(move back toSorting tray move)
-  	// or end of pile(continue)
+    //check messege from pi -> done or another round
+    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
+    /*
+    TODO: If statment about what to do:
+    another card will be "goto mainloop;"
+    done will just continue
+    */
   
-  	pullingHandlePush();//pulling back cards to the Feeding tray
+    HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
   
-  	//check messege from pi -> done or another round
+    HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
   
-  	HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
-  
-  	HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
-  	/* USER CODE END 5 */
+    /* USER CODE END 5 */
 	}
 }
 
