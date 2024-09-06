@@ -1,0 +1,17 @@
+../Core/Src/main.c:120:5:main	16	static
+../Core/Src/main.c:231:6:SystemClock_Config	72	static
+../Core/Src/main.c:271:13:MX_TIM2_Init	64	static
+../Core/Src/main.c:335:13:MX_USART1_UART_Init	8	static
+../Core/Src/main.c:368:13:MX_GPIO_Init	40	static
+../Core/Src/main.c:424:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/main.c:454:6:callibration	16	static
+../Core/Src/main.c:476:6:retrivigCards	16	static
+../Core/Src/main.c:493:5:calculateStepsToLevel	16	static
+../Core/Src/main.c:521:6:StepperMove	32	static
+../Core/Src/main.c:549:6:pullingHandlePush	24	static
+../Core/Src/main.c:569:6:cardPushSpin	16	static
+../Core/Src/main.c:584:8:getMessegeInterpret	16	static
+../Core/Src/main.c:595:12:getMessege	24	static
+../Core/Src/main.c:624:6:StartDefaultTask	16	static
+../Core/Src/main.c:718:6:HAL_TIM_PeriodElapsedCallback	16	static
+../Core/Src/main.c:735:6:Error_Handler	4	static,ignoring_inline_asm

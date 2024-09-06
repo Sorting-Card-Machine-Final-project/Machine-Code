@@ -36,10 +36,10 @@
 /* USER CODE BEGIN PTD */
 typedef struct __mOrder
 {
-  uint8_t tray;
-  uint8_t flag_noMoreCards;
-  uint8_t flag_end;
-  uint8_t flag_start;
+  uint8_t tray; // the number of tray to go/ options: 0, 1, 2, 3;
+  uint8_t flag_moreCards; // 1 true - more cards to sort. go back; 0 false no more cards. continoue;
+  uint8_t flag_notEnd; // 1 true - go back for more rounds; 0 false ended. continue;
+  uint8_t flag_start; // 1 true - start; 0 false don't start;
   uint8_t Error;
 }mOrder;
 
@@ -76,14 +76,15 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 
-
 /* USER CODE BEGIN PV */
+TaskHandle_t xHandleMainTask;
 QueueHandle_t xQueueUART;
 uint8_t rxBuffer[RX_BUFFER_SIZE];
 uint8_t pvBuffer[RX_BUFFER_SIZE];
 int16_t trayPosition = 0;
 mOrder theMessege;
 BaseType_t xReturned;
+uint8_t taskSuspendFlag = 1; // 1 true - task running; 0 false task suspended;
 
 /* USER CODE END PV */
 
@@ -92,8 +93,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART1_UART_Init(void);
-void StartDefaultTask(void const * argument)
-
+void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 // !Need to write messegeInterpret function
@@ -101,6 +101,7 @@ mOrder getMessegeInterpret(uint8_t* buffer); // The function can return Struct o
 BaseType_t getMessege();
 void callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
 void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
+void StepperMove (int stepsToDir);
 int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
 void pullingHandlePush(); // Pushing the cards back to the Feeding Tray
 void cardPushSpin(); // Pushing one card from the main deck
@@ -155,11 +156,27 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	TIM2->CCR1 = 512;
   TIM2->CCR2 = 256;
-  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2);
-  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_1);
-  HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);
-	
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);
+
+
+  /****************************** FreeRTOS *******************************/
+  xReturned = xTaskCreate( StartDefaultTask,       /* Function that implements the task. */
+                      "main Task",          /* Text name for the task. */
+                      256,      /* Stack size in words, not bytes. */
+                      ( void * ) 1,    /* Parameter passed into the task. */
+                      1,/* Priority at which the task is created. */
+					  &xHandleMainTask ); // * &xHandle );   if I need to add handle to use later
+
+    if( xReturned == pdFAIL) {
+      //Print something or say someting
+      HAL_NVIC_SystemReset();
+    }
+
+
+    vTaskStartScheduler();
   /* USER CODE END 2 */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -184,26 +201,16 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
-  xReturned = xTaskCreate(
-                    StartDefaultTask,       /* Function that implements the task. */
-                    "main Task",          /* Text name for the task. */
-                    256,      /* Stack size in words, not bytes. */
-                    ( void * ) 1,    /* Parameter passed into the task. */
-                    1,/* Priority at which the task is created. */
-                    NULL ); // * &xHandle );   if I need to add handle to use later
 
-  
-  if( xReturned == pdFAIL) {
-    //Print something or say someting
-    HAL_NVIC_SystemReset();
-  }
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
-	//Start xsechduler of FreeRTOS
-  vTaskStartScheduler();
+
+
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -374,7 +381,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, STEPPER1_DIR_Pin|STEPPER1_STEP_Pin|STEPPER2_DIR_Pin|STEPPER2_STEP_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|STEPPER1_DIR_Pin|STEPPER1_STEP_Pin|STEPPER2_DIR_Pin
+                          |STEPPER2_STEP_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_Pin */
   GPIO_InitStruct.Pin = LED_Pin;
@@ -383,17 +391,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PB0 STEPPER1_DIR_Pin STEPPER1_STEP_Pin STEPPER2_DIR_Pin
+                           STEPPER2_STEP_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|STEPPER1_DIR_Pin|STEPPER1_STEP_Pin|STEPPER2_DIR_Pin
+                          |STEPPER2_STEP_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pins : switch1_Pin switch2_Pin */
   GPIO_InitStruct.Pin = switch1_Pin|switch2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : STEPPER1_DIR_Pin STEPPER1_STEP_Pin STEPPER2_DIR_Pin STEPPER2_STEP_Pin */
-  GPIO_InitStruct.Pin = STEPPER1_DIR_Pin|STEPPER1_STEP_Pin|STEPPER2_DIR_Pin|STEPPER2_STEP_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -427,7 +437,10 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
     */
 
   }
-
+  if( !taskSuspendFlag ){
+	  vTaskResume(xHandleMainTask);
+	  taskSuspendFlag = !taskSuspendFlag;
+  }
   HAL_UART_Receive_IT(huart, rxBuffer, RX_BUFFER_SIZE);
 }
 
@@ -443,7 +456,7 @@ void callibration(){
   int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
   HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
   
-  for (uint16_t i = 0; i < MAXSTEPS && switchFlag; i++)
+  for (uint16_t i = 0; i < MAX_STEPS && switchFlag; i++)
   {
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
     vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
@@ -465,7 +478,7 @@ void retrivigCards(){
 
   for (uint8_t i = 1; i <= 4; i++)
   {
-    StepperMove(calculateStepsToLevel(i));
+	StepperMove(calculateStepsToLevel(i));
     pullingHandlePush();
   }
 
@@ -534,7 +547,7 @@ void StepperMove (int stepsToDir){
   *@retval  None
 */
 void pullingHandlePush(){
-  int steps = 100 //! edit to the right steps number
+  int steps = 100; //! edit to the right steps number
   for (uint8_t dir = 1; dir >= 0 ; dir--)
   {
     HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, dir); 
@@ -559,7 +572,7 @@ void cardPushSpin(){
 
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
-  for (uint8_t i = 0; i <= 255 && !switchval; i++)
+  for (uint8_t i = 0; i <= 255 && !switchFlag; i++)
   {
     vTaskDelay(pdMS_TO_TICKS(10));
     switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
@@ -571,9 +584,9 @@ void cardPushSpin(){
 mOrder getMessegeInterpret(uint8_t* buffer){
   //xQueue receive
   theMessege.tray = buffer[0] & 0x03;
-  theMessege.flag_noMoreCards = (buffer[0] >> 2) & 0x01;
-  theMessege.flag_noMoreCards = (buffer[0] >> 3) & 0x01;
-  theMessege.flag_noMoreCards = (buffer[0] >> 4) & 0x01;
+  theMessege.flag_moreCards = (buffer[0] >> 2) & 0x01;
+  theMessege.flag_notEnd = (buffer[0] >> 3) & 0x01;
+  theMessege.flag_start = (buffer[0] >> 4) & 0x01;
   theMessege.Error = (buffer[0] >> 5) & 0x07;
 
   return theMessege;
@@ -587,11 +600,11 @@ BaseType_t getMessege(int numOfLoops){
     res = xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
 
     if (res == pdPASS){
-      theMessege.tray = buffer[0] & 0x03;
-      theMessege.flag_noMoreCards = (buffer[0] >> 2) & 0x01;
-      theMessege.flag_noMoreCards = (buffer[0] >> 3) & 0x01;
-      theMessege.flag_noMoreCards = (buffer[0] >> 4) & 0x01;
-      theMessege.Error = (buffer[0] >> 5) & 0x07;
+      theMessege.tray = pvBuffer[0] & 0x03;
+      theMessege.flag_moreCards = (pvBuffer[0] >> 2) & 0x01;
+      theMessege.flag_notEnd = (pvBuffer[0] >> 3) & 0x01;
+      theMessege.flag_start = (pvBuffer[0] >> 4) & 0x01;
+      theMessege.Error = (pvBuffer[0] >> 5) & 0x07;
     }
   }
   return res;
@@ -608,7 +621,7 @@ BaseType_t getMessege(int numOfLoops){
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void const * argument)
+void StartDefaultTask(void *pvParameters)
 {
   /* USER CODE BEGIN 5 */
   
@@ -621,8 +634,8 @@ void StartDefaultTask(void const * argument)
   
   */
   
-  HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
-  calibration();
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+  callibration();
   
   // for(uint_8 i = 0; i < 15 && xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)) == pdFalse; i++){
   //   vTaskDelay(pdMS_TO_TICKS(100));
@@ -638,23 +651,22 @@ void StartDefaultTask(void const * argument)
   {
     mainLoop1:
     
-    HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2);//Starting the PWM of the roller motor
+    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);//Starting the PWM of the roller motor
   
     // xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)); //???pull from xQueue -> if empty Delay(1000);
-    // messegeInterpret(pvBuffer); // TODO: Not complited. Need to write the function 
     if (getMessege(15) == pdFAIL){
       //! send error to the Pi, wait for x seconds and rerty/reboot.
     } 
     /*interpent the messege -> Build the function
     The function needs to interpent the messege and to put the values on a new Struct(global)
     */
-    
-    //move Sorting Tray to position
+    mainLoop2:
+    StepperMove(calculateStepsToLevel(theMessege.tray));//move Sorting Tray to position
     cardPushSpin();//starting one loop of the PWM of the pushing DC motor
   
     vTaskDelay(pdMS_TO_TICKS(1000));// To make sure the card at the place
   
-    //check for new messege from pi. Or another card(move back toSorting tray move)
+    //check for new message from pi. Or another card(move back toSorting tray move)
     // or end of pile(continue)
     //start
     if (getMessege(15) == pdFAIL){
@@ -662,11 +674,16 @@ void StartDefaultTask(void const * argument)
     } 
     /*
     TODO: If statment about what to do:
-    another card will be "goto mainloop;"
-    end of pile will just continue
+    Or another card(move back toSorting tray move)
+    or end of pile(continue)
     */
+    if(theMessege.flag_moreCards){
+    	goto mainLoop2;
+    }
     //end
   
+    HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
+
     pullingHandlePush();//pulling back cards to the Feeding tray
   
     //check messege from pi -> done or another round
@@ -678,13 +695,17 @@ void StartDefaultTask(void const * argument)
     another card will be "goto mainloop;"
     done will just continue
     */
+    if(theMessege.flag_notEnd){
+    	goto mainLoop1;
+    }
   
-    HAL_TIM_PWM_STOP(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
   
-    HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_SET);//Turn on end indicator light
-  
-    /* USER CODE END 5 */
-	}
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);//Turn on end indicator light
+
+    taskSuspendFlag = 0;
+    vTaskSuspend(xHandleMainTask);
+  }
+  /* USER CODE END 5 */
 }
 
 /**
