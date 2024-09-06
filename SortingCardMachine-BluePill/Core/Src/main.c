@@ -34,6 +34,14 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct __mOrder
+{
+  uint8_t tray;
+  uint8_t flag_noMoreCards;
+  uint8_t flag_end;
+  uint8_t flag_start;
+  uint8_t Error;
+}mOrder;
 
 /* USER CODE END PTD */
 
@@ -72,8 +80,11 @@ UART_HandleTypeDef huart1;
 /* USER CODE BEGIN PV */
 QueueHandle_t xQueueUART;
 uint8_t rxBuffer[RX_BUFFER_SIZE];
-unit8_t pvBuffer[RX_BUFFER_SIZR];
+uint8_t pvBuffer[RX_BUFFER_SIZE];
 int16_t trayPosition = 0;
+mOrder theMessege;
+BaseType_t xReturned;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -86,8 +97,9 @@ void StartDefaultTask(void const * argument)
 
 /* USER CODE BEGIN PFP */
 // !Need to write messegeInterpret function
-int messegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct 
-int callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
+mOrder getMessegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct 
+BaseType_t getMessege();
+void callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
 void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
 int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
 void pullingHandlePush(); // Pushing the cards back to the Feeding Tray
@@ -108,7 +120,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  xQueueUART = xQueueCreate( 2, sizeof(uint8_t) ); // Can be 1 for 8bits messege
+  xQueueUART = xQueueCreate( 2, sizeof(uint8_t) ); // For 16 bits messege multiple the sizeof() by 2
 /*
 	The Queue needs to be on uint16_t for 16 bits messege
 	*/
@@ -116,6 +128,7 @@ int main(void)
     //xQueueUART was not created
     //Can handle the error or send a messege to rpi(RaspberryPi)
   }
+
 
   /* USER CODE END 1 */
 
@@ -171,15 +184,26 @@ int main(void)
 
   /* Create the thread(s) */
   /* definition and creation of defaultTask */
+  xReturned = xTaskCreate(
+                    StartDefaultTask,       /* Function that implements the task. */
+                    "main Task",          /* Text name for the task. */
+                    256,      /* Stack size in words, not bytes. */
+                    ( void * ) 1,    /* Parameter passed into the task. */
+                    1,/* Priority at which the task is created. */
+                    NULL ); // * &xHandle );   if I need to add handle to use later
 
-
+  
+  if( xReturned == pdFAIL) {
+    //Print something or say someting
+    HAL_NVIC_SystemReset();
+  }
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
 	//Start xsechduler of FreeRTOS
-
+  vTaskStartScheduler();
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -414,7 +438,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
   *@note the function changes the trayPosition global variable
   *@retval int status: 1 OK, 0 Error
 */
-int callibration(){
+void callibration(){
 
   int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
   HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
@@ -544,6 +568,36 @@ void cardPushSpin(){
   HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
 }
 
+mOrder getMessegeInterpret(uint8_t* buffer){
+  //xQueue receive
+  theMessege.tray = buffer[0] & 0x03;
+  theMessege.flag_noMoreCards = (buffer[0] >> 2) & 0x01;
+  theMessege.flag_noMoreCards = (buffer[0] >> 3) & 0x01;
+  theMessege.flag_noMoreCards = (buffer[0] >> 4) & 0x01;
+  theMessege.Error = (buffer[0] >> 5) & 0x07;
+
+  return theMessege;
+}
+
+BaseType_t getMessege(int numOfLoops){
+  //xQueue receive
+  BaseType_t res = pdFALSE;
+  for (uint8_t i = 0; i < numOfLoops && !res; i++)
+  {
+    res = xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
+
+    if (res == pdPASS){
+      theMessege.tray = buffer[0] & 0x03;
+      theMessege.flag_noMoreCards = (buffer[0] >> 2) & 0x01;
+      theMessege.flag_noMoreCards = (buffer[0] >> 3) & 0x01;
+      theMessege.flag_noMoreCards = (buffer[0] >> 4) & 0x01;
+      theMessege.Error = (buffer[0] >> 5) & 0x07;
+    }
+  }
+  return res;
+  
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -569,20 +623,28 @@ void StartDefaultTask(void const * argument)
   
   HAL_GPIO_WritePin(LED_STEP_GPIO_Port, LED_STEP_Pin, GPIO_PIN_RESET);
   calibration();
+  
+  // for(uint_8 i = 0; i < 15 && xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)) == pdFalse; i++){
+  //   vTaskDelay(pdMS_TO_TICKS(100));
+  // } // Order to start the process
+  // getMessegeInterpret(pvBuffer);
+  if (getMessege(25) == pdFAIL){
+    //! send error to the Pi, wait for x seconds and rerty/reboot.
+  }
 
-  for(uint_8 i = 0; i < 15 && xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(10)) == pdFalse; i++){
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  } // Order to start the process
   
   /* Infinite loop */
   for(;;)
   {
     mainLoop1:
     
-    HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2)//Starting the PWM of the roller motor
+    HAL_TIM_PWM_START(&htim2, TIM_CHANNEL_2);//Starting the PWM of the roller motor
   
-    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)); //???pull from xQueue -> if empty Delay(1000);
-    messegeInterpret(pvBuffer); // TODO: Not complited. Need to write the function 
+    // xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)); //???pull from xQueue -> if empty Delay(1000);
+    // messegeInterpret(pvBuffer); // TODO: Not complited. Need to write the function 
+    if (getMessege(15) == pdFAIL){
+      //! send error to the Pi, wait for x seconds and rerty/reboot.
+    } 
     /*interpent the messege -> Build the function
     The function needs to interpent the messege and to put the values on a new Struct(global)
     */
@@ -595,7 +657,9 @@ void StartDefaultTask(void const * argument)
     //check for new messege from pi. Or another card(move back toSorting tray move)
     // or end of pile(continue)
     //start
-    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
+    if (getMessege(15) == pdFAIL){
+      //! send error to the Pi, wait for x seconds and rerty/reboot.
+    } 
     /*
     TODO: If statment about what to do:
     another card will be "goto mainloop;"
@@ -606,7 +670,9 @@ void StartDefaultTask(void const * argument)
     pullingHandlePush();//pulling back cards to the Feeding tray
   
     //check messege from pi -> done or another round
-    xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100));
+    if (getMessege(15) == pdFAIL){
+      //! send error to the Pi, wait for x seconds and rerty/reboot.
+    } 
     /*
     TODO: If statment about what to do:
     another card will be "goto mainloop;"
