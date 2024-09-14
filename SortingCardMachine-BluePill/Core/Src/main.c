@@ -583,11 +583,12 @@ void cardPushSpin(){
 
 mOrder getMessegeInterpret(uint8_t* buffer){
   //xQueue receive
-  theMessege.tray = buffer[0] & 0x03;
-  theMessege.flag_moreCards = (buffer[0] >> 2) & 0x01;
-  theMessege.flag_notEnd = (buffer[0] >> 3) & 0x01;
-  theMessege.flag_start = (buffer[0] >> 4) & 0x01;
-  theMessege.Error = (buffer[0] >> 5) & 0x07;
+	// the bits order are: 0b87654321
+  theMessege.tray = buffer[0] & 0x03;  // 1st and 2nd bits
+  theMessege.flag_moreCards = (buffer[0] >> 2) & 0x01; // 3rd bit
+  theMessege.flag_notEnd = (buffer[0] >> 3) & 0x01; // 4th bit
+  theMessege.flag_start = (buffer[0] >> 4) & 0x01; // 5th bit
+  theMessege.Error = (buffer[0] >> 5) & 0x07; // 6th to 8th bits
 
   return theMessege;
 }
@@ -654,14 +655,17 @@ void StartDefaultTask(void *pvParameters)
     HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);//Starting the PWM of the roller motor
   
     // xQueueReceive(xQueueUART, pvBuffer, pdMS_TO_TICKS(100)); //???pull from xQueue -> if empty Delay(1000);
-    if (getMessege(15) == pdFAIL){
+    if (getMessege(15) == pdFAIL){// Maybe change to while and delay
       //! send error to the Pi, wait for x seconds and rerty/reboot.
+    	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #1", sizeof("Error #1"), 100);
     } 
     /*interpent the messege -> Build the function
     The function needs to interpent the messege and to put the values on a new Struct(global)
     */
     mainLoop2:
+
     StepperMove(calculateStepsToLevel(theMessege.tray));//move Sorting Tray to position
+	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #2", sizeof("Error #2"), 100); // message about the tray position
     cardPushSpin();//starting one loop of the PWM of the pushing DC motor
   
     vTaskDelay(pdMS_TO_TICKS(1000));// To make sure the card at the place
@@ -671,6 +675,7 @@ void StartDefaultTask(void *pvParameters)
     //start
     if (getMessege(15) == pdFAIL){
       //! send error to the Pi, wait for x seconds and rerty/reboot.
+    	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #3", sizeof("Error ##"), 100); // message about the tray position
     } 
     /*
     TODO: If statment about what to do:
@@ -679,16 +684,19 @@ void StartDefaultTask(void *pvParameters)
     */
     if(theMessege.flag_moreCards){
     	goto mainLoop2;
+    	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #4", sizeof("Error ##"), 100); // message about the tray position
     }
     //end
   
     HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);// Stop PWM of the DC motor of the roller
+    HAL_UART_Transmit(&huart1, (uint8_t)* "Error #4", sizeof("Error ##"), 100); // message about the tray position
 
     pullingHandlePush();//pulling back cards to the Feeding tray
-  
+    HAL_UART_Transmit(&huart1, (uint8_t)* "Error #5", sizeof("Error ##"), 100); // message about the tray position
     //check messege from pi -> done or another round
     if (getMessege(15) == pdFAIL){
       //! send error to the Pi, wait for x seconds and rerty/reboot.
+    	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #6", sizeof("Error ##"), 100); // message about the tray position
     } 
     /*
     TODO: If statment about what to do:
@@ -697,10 +705,12 @@ void StartDefaultTask(void *pvParameters)
     */
     if(theMessege.flag_notEnd){
     	goto mainLoop1;
+    	HAL_UART_Transmit(&huart1, (uint8_t)* "Error #7", sizeof("Error ##"), 100); // message about the tray position
     }
   
   
     HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);//Turn on end indicator light
+    HAL_UART_Transmit(&huart1, (uint8_t)* "Error #8", sizeof("Error ##"), 100); // message about the tray position
 
     taskSuspendFlag = 0;
     vTaskSuspend(xHandleMainTask);
