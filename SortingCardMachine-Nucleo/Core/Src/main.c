@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include <pthread.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -47,7 +47,11 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+uint8_t rxBuffer[RX_BUFFER_SIZE];
+uint8_t pvBuffer[RX_BUFFER_SIZE];
+int16_t trayPosition = 0;
+mOrder theMessege;
+uint8_t taskSuspendFlag = 1; // 1 true - task running; 0 false task suspended;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,7 +62,13 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+mOrder getMessegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct
+void callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
+void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
+void StepperMove (int stepsToDir);
+int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
+void pullingHandlePush(); // Pushing the cards back to the Feeding Tray
+void cardPushSpin(); // Pushing one card from the main deck
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -74,7 +84,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  HAL_UART_Transmit(&huart2,(uint8_t *) "Start running", sizeof("Start running"), 100);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -100,6 +110,25 @@ int main(void)
   MX_TIM4_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  //Two ways to change DutyCycle
+  TIM3->CCR1 = 512; //1st way
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 256); //2nd way
+
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+  HAL_Delay(1000);
+  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+  HAL_UART_Transmit(&huart2,(uint8_t *) "Part 1", sizeof("Part 1"), 100);
+
+  HAL_UART_Transmit(&huart2,(uint8_t *) "Start Scheduler", sizeof("Start Scheduler"), 100);
+
+
+  /*                             Section 2                                    */
+  Section2:
+
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+  callibration();
 
   /* USER CODE END 2 */
 
@@ -172,6 +201,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -181,9 +211,18 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 1024;
+  htim3.Init.Period = 1023;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -195,7 +234,7 @@ static void MX_TIM3_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 256;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -221,6 +260,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -230,9 +270,18 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 0;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 1024;
+  htim4.Init.Period = 1023;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
   {
     Error_Handler();
@@ -244,7 +293,7 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 256;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -372,6 +421,188 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/***** UART Interrupt Function ################################################*/
+/*
+  This function starting when messege is starting to arrive
+  Then the function pushing the messege to xQueueUART
+*/
+/**
+  * @brief  This function starting when messege is starting to arrive. Then the function pushing the messege to xQueueUART
+  * @param  huart: UART handle
+  * @retval None
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+  if (huart->Instance == USART1){
+   if(xQueueSendFromISR(xQueueUART, rxBuffer, NULL) == errQUEUE_FULL){
+    //Queue is full - need to send a messege about it.
+   }
+    //HAL_UART_Receive(huart, &rxBuffer, RX_BUFFER_SIZE, HAL_MAX_DELAY);  // The function HAL_UART_Receive_IT already fill rxBuffer
+    /*
+    Here we need to deside what we are looking for at the messeges
+    For example we have first 7 bits that reffer to the suit and number (4 bits of number - 13 options, 2 bits of suit - 4 options)
+    We need to add the cell to go (2 bits),
+    and acknowledge
+
+    The place for the interpertation can be when the program pull it from the Queue
+    */
+
+  }
+  if( !taskSuspendFlag ){
+	  vTaskResume(xHandleMainTask);
+	  taskSuspendFlag = !taskSuspendFlag;
+  }
+  HAL_UART_Receive_IT(huart, rxBuffer, RX_BUFFER_SIZE);
+}
+
+
+/***** Callibration Function #################################################*/
+/**
+  *@brief function moves the Sorting tray until the switch is close
+  *@note the function changes the trayPosition global variable
+  *@retval int status: 1 OK, 0 Error
+*/
+void callibration(){
+
+  int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
+
+  for (uint16_t i = 0; i < MAX_STEPS && switchFlag; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
+    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  }
+
+  trayPosition = 0;
+}
+/***** Retriving Function #################################################*/
+/**
+  *@brief The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
+  *@note The function calls callibration function
+  *@retval None
+*/
+void retrivigCards(){
+  callibration();
+
+  for (uint8_t i = 1; i <= 4; i++)
+  {
+	StepperMove(calculateStepsToLevel(i));
+    pullingHandlePush();
+  }
+
+}
+/***** calculation of steps to level Function ##############################*/
+/**
+  *@brief calculate the steps to the next level
+  *@param level_to_go: The level to go to
+  *@note the current level is the global trayPosition
+  *@retval steps to go. positive is down, negative is up // Can be changed.
+*/
+int calculateStepsToLevel(int level_to_go){
+  switch (level_to_go)
+  {
+  case 1:
+    return FIRST_LEVEL_POS - trayPosition;
+    break;
+  case 2:
+    return SECOND_LEVEL_POS - trayPosition;
+    break;
+  case 3:
+    return THIRD_LEVEL_POS - trayPosition;
+    break;
+  case 4:
+    return FOURTH_LEVEL_POS - trayPosition;
+    break;
+
+  default:
+    return 0;
+    break;
+  }
+}
+
+/***** Stepper Move Function ##############################################*/
+/**
+  *@brief moving the Sorting Tray to position
+  *@param stepsToDir: the number of steps to the next position.
+  *@retval  None
+*/
+void StepperMove (int stepsToDir){
+  uint32_t steps;
+  uint8_t direction;
+  if(stepsToDir > 0){
+    direction = GPIO_PIN_SET;
+    steps = stepsToDir;
+  } else {
+    direction = GPIO_PIN_RESET;
+    steps = stepsToDir * -1;
+  }
+
+  HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, direction); // (direction ? GPIO_PIN_SET : GPIO_PIN_RESET)
+
+  for (uint32_t i = 0; i < steps; i++)
+  {
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+    HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
+
+    trayPosition += direction ? 1 : (-1) ;
+  }
+}
+/***** Pulling Handle Push Function ########################################*/
+/**
+  *@brief Pushing the cards back to the Feeding Tray
+  *@retval  None
+*/
+void pullingHandlePush(){
+  int steps = 100; //! edit to the right steps number
+  for (uint8_t dir = 1; dir >= 0 ; dir--)
+  {
+    HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, dir);
+    for (uint32_t i = 0; i < steps; i++)
+    {
+      HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
+      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+      HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
+      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
+    }
+  }
+
+}
+
+/**
+  *@brief Pushing one card from the main deck
+  *@retval  None
+*/
+void cardPushSpin(){
+  int switchFlag = 0; // switch is open
+	TIM2->CCR1 = 100;
+
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+  for (uint8_t i = 0; i <= 255 && !switchFlag; i++)
+  {
+    vTaskDelay(pdMS_TO_TICKS(10));
+    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  }
+
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+}
+
+mOrder getMessegeInterpret(uint8_t* buffer){
+  //xQueue receive
+	// the bits order are: 0b87654321
+  theMessege.tray = buffer[0] & 0x03;  // 1st and 2nd bits
+  theMessege.flag_moreCards = (buffer[0] >> 2) & 0x01; // 3rd bit
+  theMessege.flag_notEnd = (buffer[0] >> 3) & 0x01; // 4th bit
+  theMessege.flag_start = (buffer[0] >> 4) & 0x01; // 5th bit
+  theMessege.Error = (buffer[0] >> 5) & 0x07; // 6th to 8th bits
+
+  return theMessege;
+}
+
 
 /* USER CODE END 4 */
 
