@@ -18,20 +18,42 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <pthread.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct __mOrder
+{
+  uint8_t tray; // the number of tray to go/ options: 0, 1, 2, 3;
+  uint8_t flag_moreCards; // 1 true - more cards to sort. go back; 0 false no more cards. continoue;
+  uint8_t flag_notEnd; // 1 true - go back for more rounds; 0 false ended. continue;
+  uint8_t flag_start; // 1 true - start; 0 false don't start;
+  uint8_t Error;
+}mOrder;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RX_BUFFER_SIZE 20
+#define RX_DATA_SIZE 1
 
+/***** STEPPER defines #######################################################*/
+#define STEPS_PER_REVOLUTION 200 // Need to define
+#define STEP_DELAY_MS 10 // Need to define
+#define MOTOR_TASK_PRIORITY osPriorityNormal
+#define MOTOR_TASK_STACK_SIZE 128
+#define FORWARS 1
+#define BACKWARDS 0
+#define MAX_STEPS 1000 // Need to define
+/***** Tray Positions defines ################################################*/
+#define FIRST_LEVEL_POS 1 // Lowest level of Sorting Tray  //UPDATE!!
+#define SECOND_LEVEL_POS 2 // Lowest level of Sorting Tray  //UPDATE!!
+#define THIRD_LEVEL_POS 3 // Lowest level of Sorting Tray  //UPDATE!!
+#define FOURTH_LEVEL_POS 4 // Lowest level of Sorting Tray  //UPDATE!!
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -43,15 +65,23 @@
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
-UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+/*
+ * htim3 = main tray pusher
+ * htim4 = return machanizem
+*/
 uint8_t rxBuffer[RX_BUFFER_SIZE];
-uint8_t pvBuffer[RX_BUFFER_SIZE];
+uint8_t tempBuffer[2*RX_DATA_SIZE];
 int16_t trayPosition = 0;
 mOrder theMessege;
 uint8_t taskSuspendFlag = 1; // 1 true - task running; 0 false task suspended;
+
+uint8_t bufferIndexIT = 0;
+uint8_t bufferIndexMain = 0;
+
+int j = 0; // Delete
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,10 +90,10 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-mOrder getMessegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct
-void callibration(); // The Callibration of the Sorting Tray, Change the position to Zero at the end
+int getMessegeInterpret(uint8_t* buffer); // The function can return Struct of the information when we decife the struct
+int getMessegeInterpret2(uint8_t* buffer); // Delete at the end
+void calibration(); // The calibration of the Sorting Tray, Change the position to Zero at the end
 void retrivigCards(); // The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
 void StepperMove (int stepsToDir);
 int calculateStepsToLevel(int level_to_go); // calculate the steps to the next level
@@ -84,7 +114,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  HAL_UART_Transmit(&huart2,(uint8_t *) "Start running", sizeof("Start running"), 100);
+  //HAL_UART_Transmit(&huart2,(uint8_t *) "Start running", sizeof("Start running"), 100);
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -108,27 +138,28 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
   //Two ways to change DutyCycle
   TIM3->CCR1 = 512; //1st way
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 256); //2nd way
+  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 256); //2nd way
 
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   HAL_Delay(1000);
   HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
-  HAL_UART_Transmit(&huart2,(uint8_t *) "Part 1", sizeof("Part 1"), 100);
-
-  HAL_UART_Transmit(&huart2,(uint8_t *) "Start Scheduler", sizeof("Start Scheduler"), 100);
-
 
   /*                             Section 2                                    */
-  Section2:
 
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-  callibration();
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  calibration();
+
+  do{ // To wait for the Start Command
+	  getMessegeInterpret(rxBuffer);
+	  HAL_Delay(500);
+  }while(!theMessege.flag_start);
+
 
   /* USER CODE END 2 */
 
@@ -136,6 +167,31 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+	  if(theMessege.flag_moreCards && theMessege.flag_start){ //start and more cards
+		  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+		  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);//Starting the PWM of the roller motor
+
+		  StepperMove(calculateStepsToLevel(theMessege.tray));//move Sorting Tray to position
+		  cardPushSpin();//starting one loop of the PWM of the pushing DC motor
+
+		  HAL_Delay(1000); // To make sure the card at the place
+
+		  getMessegeInterpret(rxBuffer); // Get the next messege
+  	  }
+	  else if(!theMessege.flag_moreCards && theMessege.flag_start){ // no more cards and start
+		  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);// Stop PWM of the DC motor of the roller
+		  retrivigCards();//pulling back cards to the Feeding tray
+		  getMessegeInterpret(rxBuffer); // Get the next messege
+	  }
+	  else if(!theMessege.flag_start){ // Not start = end
+		  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);//Turn on end indicator light
+		  HAL_Delay(500);
+		  // add pin for restart - 1 restart, 0, don't restart.
+		  //Add if when restart to do calibration and read message to start again.
+	  }
+
+	  HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -308,39 +364,6 @@ static void MX_TIM4_Init(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -394,7 +417,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|STEPPER2_DIR_Pin|STEPPER2_STEP_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, STEPPER__STEP_Pin|STEPPER__DIR_Pin|SWITCH1_Pin|SWITCH2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, STEPPER1_STEP_Pin|STEPPER1_DIR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -409,11 +432,17 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : STEPPER__STEP_Pin STEPPER__DIR_Pin SWITCH1_Pin SWITCH2_Pin */
-  GPIO_InitStruct.Pin = STEPPER__STEP_Pin|STEPPER__DIR_Pin|SWITCH1_Pin|SWITCH2_Pin;
+  /*Configure GPIO pins : STEPPER1_STEP_Pin STEPPER1_DIR_Pin */
+  GPIO_InitStruct.Pin = STEPPER1_STEP_Pin|STEPPER1_DIR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : SWITCH1_Pin SWITCH2_Pin */
+  GPIO_InitStruct.Pin = SWITCH1_Pin|SWITCH2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -432,47 +461,35 @@ static void MX_GPIO_Init(void)
   * @retval None
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+
   if (huart->Instance == USART1){
-   if(xQueueSendFromISR(xQueueUART, rxBuffer, NULL) == errQUEUE_FULL){
-    //Queue is full - need to send a messege about it.
-   }
-    //HAL_UART_Receive(huart, &rxBuffer, RX_BUFFER_SIZE, HAL_MAX_DELAY);  // The function HAL_UART_Receive_IT already fill rxBuffer
-    /*
-    Here we need to deside what we are looking for at the messeges
-    For example we have first 7 bits that reffer to the suit and number (4 bits of number - 13 options, 2 bits of suit - 4 options)
-    We need to add the cell to go (2 bits),
-    and acknowledge
 
-    The place for the interpertation can be when the program pull it from the Queue
-    */
+	  memcpy(rxBuffer + bufferIndexIT, tempBuffer, RX_DATA_SIZE);
+	  bufferIndexIT += RX_DATA_SIZE;
+	  if (bufferIndexIT + RX_DATA_SIZE >= RX_BUFFER_SIZE) bufferIndexIT = 0;
+	  HAL_UART_Receive_IT(huart, tempBuffer, RX_DATA_SIZE);
+  }
 
-  }
-  if( !taskSuspendFlag ){
-	  vTaskResume(xHandleMainTask);
-	  taskSuspendFlag = !taskSuspendFlag;
-  }
-  HAL_UART_Receive_IT(huart, rxBuffer, RX_BUFFER_SIZE);
 }
 
-
-/***** Callibration Function #################################################*/
+/***** calibration Function #################################################*/
 /**
   *@brief function moves the Sorting tray until the switch is close
   *@note the function changes the trayPosition global variable
   *@retval int status: 1 OK, 0 Error
 */
-void callibration(){
+void calibration(){
 
-  int switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+  int switchFlag = HAL_GPIO_ReadPin(SWITCH1_GPIO_Port, SWITCH1_Pin);
   HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, BACKWARDS); // UP to the top position
 
-  for (uint16_t i = 0; i < MAX_STEPS && switchFlag; i++)
+  for (uint16_t i = 0; i < MAX_STEPS && !switchFlag; i++)
   {
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+    HAL_Delay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
-    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+    HAL_Delay(STEP_DELAY_MS); // Delay between steps
+    switchFlag = HAL_GPIO_ReadPin(SWITCH1_GPIO_Port, SWITCH1_Pin);
   }
 
   trayPosition = 0;
@@ -480,11 +497,11 @@ void callibration(){
 /***** Retriving Function #################################################*/
 /**
   *@brief The functuin  retriving the cards from the Sorting Tray back to the Feeding Tray
-  *@note The function calls callibration function
+  *@note The function calls calibration function
   *@retval None
 */
 void retrivigCards(){
-  callibration();
+  calibration();
 
   for (uint8_t i = 1; i <= 4; i++)
   {
@@ -544,9 +561,9 @@ void StepperMove (int stepsToDir){
   for (uint32_t i = 0; i < steps; i++)
   {
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+    HAL_Delay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
     HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-    vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
+    HAL_Delay(STEP_DELAY_MS); // Delay between steps
 
     trayPosition += direction ? 1 : (-1) ;
   }
@@ -558,15 +575,15 @@ void StepperMove (int stepsToDir){
 */
 void pullingHandlePush(){
   int steps = 100; //! edit to the right steps number
-  for (uint8_t dir = 1; dir >= 0 ; dir--)
+  for (int8_t dir = 1; dir >= 0 ; dir--)
   {
     HAL_GPIO_WritePin(STEPPER1_DIR_GPIO_Port, STEPPER1_DIR_Pin, dir);
     for (uint32_t i = 0; i < steps; i++)
     {
       HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_SET);
-      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay to allow stepper driver to register step
+      HAL_Delay(STEP_DELAY_MS); // Delay to allow stepper driver to register step
       HAL_GPIO_WritePin(STEPPER1_STEP_GPIO_Port, STEPPER1_STEP_Pin, GPIO_PIN_RESET);
-      vTaskDelay(pdMS_TO_TICKS(STEP_DELAY_MS)); // Delay between steps
+      HAL_Delay(STEP_DELAY_MS); // Delay between steps
     }
   }
 
@@ -577,31 +594,95 @@ void pullingHandlePush(){
   *@retval  None
 */
 void cardPushSpin(){
-  int switchFlag = 0; // switch is open
-	TIM2->CCR1 = 100;
+  int switchFlag = HAL_GPIO_ReadPin(SWITCH2_GPIO_Port, SWITCH2_Pin);
 
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
 
   for (uint8_t i = 0; i <= 255 && !switchFlag; i++)
   {
-    vTaskDelay(pdMS_TO_TICKS(10));
-    switchFlag = HAL_GPIO_ReadPin(switch1_GPIO_Port, switch1_Pin);
+    HAL_Delay(10);
+    switchFlag = HAL_GPIO_ReadPin(SWITCH2_GPIO_Port, SWITCH2_Pin);
   }
 
-  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
 }
 
-mOrder getMessegeInterpret(uint8_t* buffer){
-  //xQueue receive
-	// the bits order are: 0b87654321
-  theMessege.tray = buffer[0] & 0x03;  // 1st and 2nd bits
-  theMessege.flag_moreCards = (buffer[0] >> 2) & 0x01; // 3rd bit
-  theMessege.flag_notEnd = (buffer[0] >> 3) & 0x01; // 4th bit
-  theMessege.flag_start = (buffer[0] >> 4) & 0x01; // 5th bit
-  theMessege.Error = (buffer[0] >> 5) & 0x07; // 6th to 8th bits
+int getMessegeInterpret2(uint8_t* buffer){
 
-  return theMessege;
+	for ( ; bufferIndexMain == bufferIndexIT ; ){
+		HAL_UART_Transmit(&huart2, (uint8_t*) "Waiting for message", sizeof("Waiting for message"), 1000);
+		HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+		HAL_Delay(500);
+		HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+		HAL_Delay(500);
+	}
+	uint8_t msg8_t= *(buffer + bufferIndexMain);
+
+	theMessege.tray = msg8_t & 0x03;  // 1st and 2nd bits
+	theMessege.flag_moreCards = (msg8_t >> 2) & 0x01; // 3rd bit
+	theMessege.flag_notEnd = (msg8_t >> 3) & 0x01; // 4th bit
+	theMessege.flag_start = (msg8_t >> 4) & 0x01; // 5th bit
+	theMessege.Error = (msg8_t >> 5) & 0x07; // 6th to 8th bits
+
+	bufferIndexMain += RX_DATA_SIZE;
+	if (bufferIndexMain >= RX_BUFFER_SIZE) bufferIndexMain = 0;
+
+	return 1;
 }
+
+int getMessegeInterpret(uint8_t* buffer){
+	uint8_t msg8_t;
+	switch (j) {
+		case 0:
+			msg8_t = 0x14; // start
+			break;
+		case 1:
+			msg8_t = 0x14;
+			break;
+		case 2:
+			msg8_t = 0x15;
+				break;
+		case 3:
+			msg8_t = 0x16;
+				break;
+		case 4:
+			msg8_t = 0x15;
+				break;
+		case 5:
+			msg8_t = 0x17;
+				break;
+		case 6:
+			msg8_t = 0x14;
+				break;
+		case 7:
+			msg8_t = 0x14;
+				break;
+		case 8:
+			msg8_t = 0x15;
+				break;
+		case 9:
+			msg8_t = 0x12;
+				break;
+		case 10:
+			msg8_t = 0x01;
+				break;
+		default:
+			break;
+	}
+	j++;
+
+	theMessege.tray = msg8_t & 0x03;  // 1st and 2nd bits
+	theMessege.flag_moreCards = (msg8_t >> 2) & 0x01; // 3rd bit
+	theMessege.flag_notEnd = (msg8_t >> 3) & 0x01; // 4th bit
+	theMessege.flag_start = (msg8_t >> 4) & 0x01; // 5th bit
+	theMessege.Error = (msg8_t >> 5) & 0x07; // 6th to 8th bits
+
+	bufferIndexMain += RX_DATA_SIZE;
+	if (bufferIndexMain >= RX_BUFFER_SIZE) bufferIndexMain = 0;
+
+	return 1;
+}
+
 
 
 /* USER CODE END 4 */
